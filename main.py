@@ -60,7 +60,7 @@ EXCLUDE_EXTENSIONS = {
     '.dockerignore', 'Dockerfile',  # Docker related files
     '.eslintrc', '.prettierrc',  # Linting and formatting config files
     '.editorconfig',  # Editor configuration files
-    'requirements.txt', 'Pipfile',  # Dependency files (might want to keep these, depending on your needs)
+    'requirements.txt', 'Pipfile',  # Dependency files
     '.flake8', '.pylintrc', 'mypy.ini',  # Python linting configuration files
     '.pyre_configuration', '.watchmanconfig',  # Facebook's Pyre and Watchman config files
     '.pre-commit-config.yaml',  # Pre-commit hooks configuration
@@ -70,7 +70,8 @@ OUTPUT_MARKDOWN = "CODEBASE_DOCUMENTATION.md"
 
 # Set the maximum tokens for the model
 MODEL_MAX_TOKENS = {
-    "o1-mini": 128000,
+    "o1-mini": 120000,
+    "o1-preview": 120000,
     # Add other models and their max tokens if needed
 }
 
@@ -101,6 +102,7 @@ def generate_directory_structure(root_dir):
             for filename in filenames:
                 if filename not in EXCLUDE_DIRS and os.path.splitext(filename)[1].lower() not in EXCLUDE_EXTENSIONS:
                     tree += f"{indent}    ├── {filename}\n"
+            print(f"Processed directory: {dirpath}")
         print("Directory structure generated successfully.")
     except Exception as e:
         print(f"Error generating directory structure: {e}")
@@ -120,16 +122,22 @@ def chunk_files(files, max_tokens_per_chunk, initial_prompt_tokens):
     for file_info in files:
         file_tokens = file_info['tokens']
         if current_tokens + file_tokens > max_tokens_per_chunk:
-            if current_chunk:
+            if not current_chunk:
+                # Single file exceeds the max tokens per chunk, need to skip or handle accordingly
+                print(f"Warning: Single file {file_info['path']} exceeds the max tokens per chunk. Skipping this file.")
+            else:
                 chunks.append(current_chunk)
+                print(f"Created chunk with estimated tokens: {current_tokens}")
+            # Start new chunk
             current_chunk = [file_info]
-            current_tokens = initial_prompt_tokens + file_tokens  # Reset current tokens
+            current_tokens = initial_prompt_tokens + file_tokens
         else:
             current_chunk.append(file_info)
             current_tokens += file_tokens
 
     if current_chunk:
         chunks.append(current_chunk)
+        print(f"Created chunk with estimated tokens: {current_tokens}")
 
     return chunks
 
@@ -180,7 +188,7 @@ async def generate_documentation(root_dir):
     max_model_tokens = MODEL_MAX_TOKENS.get(model_name, 128000)
     max_completion_tokens = 60000  # Set a reasonable completion size
     max_tokens_per_chunk = max_model_tokens - max_completion_tokens  # Max tokens for input prompt
-    initial_prompt = "Provide concise and clear descriptions for the following files. For each file, list the file path and its purpose.\n\n"
+    initial_prompt = "Provide concise and clear descriptions for the following files and their key functionalities. For each file, list the file path and its purpose.\n\n"
     initial_prompt_tokens = estimate_tokens(initial_prompt)
 
     # Update file token estimation with accurate counts
@@ -209,7 +217,7 @@ async def generate_documentation(root_dir):
 
         if total_tokens > max_model_tokens:
             print(f"Chunk {idx + 1} exceeds maximum tokens. Adjusting max_completion_tokens.")
-            max_completion_tokens = max_model_tokens - prompt_tokens - 1000  # Leave a buffer
+            max_completion_tokens = max_model_tokens - prompt_tokens - 10000  # Leave a buffer
             if max_completion_tokens <= 0:
                 print(f"Chunk {idx + 1} is too large even after adjustments. Skipping.")
                 return
@@ -273,12 +281,12 @@ async def refine_documentation(initial_documentation):
     # Split the documentation into chunks if necessary
     if total_tokens > max_tokens_per_chunk:
         print("Documentation exceeds the token limit, splitting into chunks.")
-        # Split the documentation into chunks of max_tokens_per_chunk
+        # Split the documentation into chunks based on tokens
+        doc_lines = initial_documentation.split('\n')
         chunks = []
         current_chunk = ''
         current_tokens = 0
-        lines = initial_documentation.split('\n')
-        for line in lines:
+        for line in doc_lines:
             line += '\n'
             line_tokens = estimate_tokens(line)
             if current_tokens + line_tokens > max_tokens_per_chunk:
@@ -309,8 +317,11 @@ async def refine_documentation(initial_documentation):
         total_tokens = prompt_tokens + max_completion_tokens
 
         if total_tokens > max_model_tokens:
-            print(f"Chunk {idx + 1} exceeds maximum tokens after adding prompt. Skipping.")
-            return
+            print(f"Chunk {idx + 1} exceeds maximum tokens after adding prompt. Adjusting max_completion_tokens.")
+            max_completion_tokens = max_model_tokens - prompt_tokens - 10000  # Leave a buffer
+            if max_completion_tokens <= 0:
+                print(f"Chunk {idx + 1} is too large even after adjustments. Skipping.")
+                return
 
         try:
             completion = client.chat.completions.create(
