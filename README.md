@@ -141,7 +141,7 @@ Be careful when adjusting token limits to avoid exceeding the model's maximum co
 - **Team Collaboration**: Share the comprehensive documentation with team members to improve understanding and collaboration on the codebase.
 - **Project Onboarding**: Assists new developers in quickly getting up to speed with the project structure and purpose of each component through detailed documentation.
 
-## About Markov
+## About markov
 
 `LLM_Documenter` is developed by [markov](https://markov.bot), an AI studio based in Antwerp dedicated to creating tools that bridge the gap between natural language and code. Our mission is to empower developers by simplifying complex processes through AI.
 
